@@ -1,0 +1,122 @@
+# ── Load Required Libraries ──────────────────────────────
+library(tidyverse)   # For data wrangling and visualization using ggplot2
+library(patchwork)   # To combine multiple ggplots into one layout
+library(showtext)    # To use publication-quality fonts like Times New Roman
+
+# ── Set Font ─────────────────────────────────────────────
+font_add("Times New Roman", regular = "C:/Windows/Fonts/times.ttf")  # Add Times font for consistent style
+showtext_auto()  # Automatically enable custom font rendering in plots
+
+# ── Load Data ────────────────────────────────────────────
+ST <- Physio  # Use your physiological dataset (replace if needed)
+
+# ── Trait Groups with Labels ─────────────────────────────
+trait_groups <- list(
+  "Normalized Difference Vegetation Index (NDVI)"     = c("NDVI1", "NDVI2"),  # NDVI at two growth stages
+  "Canopy Temperature °C (CT)"                        = c("CT1", "CT2"),      # Canopy temperature (°C)
+  "Chlorophyll Content (CC)"                          = c("CC1", "CC2"),      # Chlorophyll content index
+  "SPAD Chlorophyll Content (SPAD)"                   = c("SPAD1", "SPAD2"),  # SPAD meter reading
+  "Maximum Quantum Efficiency (Fv/Fm)"                = c("Fv/m1", "Fv/m2"),  # Photosynthetic efficiency
+  "Performance Index (Fv/Fo)"                         = c("Fv/o1", "Fv/o2")   # Overall photosynthetic performance
+)
+# Each trait has two measurements (vegetative and reproductive stages) for regression
+
+# ── Plot Function ────────────────────────────────────────
+plot_regression <- function(trait, trait_fullname, label_letter) {
+  # Function to create regression plot for a single trait
+  data <- ST %>%
+    select(TRT, YPP, all_of(trait)) %>%     # Keep treatment, yield per plant (YPP), and trait
+    filter(TRT %in% c("WW", "WS")) %>%      # Focus only on Well-watered (WW) and Water-stressed (WS)
+    drop_na() %>%                           # Remove missing values for cleaner regression
+    mutate(Condition = TRT)                 # Rename for easy plotting
+  
+  # Split by water condition
+  data_ws <- filter(data, Condition == "WS")
+  data_ww <- filter(data, Condition == "WW")
+  
+  # Fit regression models separately for WW and WS
+  eq_ww <- ""
+  eq_ws <- ""
+  if (nrow(data_ww) > 1) {  # Avoid fitting if few points
+    model_ww <- lm(as.formula(paste0("YPP ~ `", trait, "`")), data = data_ww)
+    eq_ww <- paste0("WW: y = ", round(coef(model_ww)[2], 2), "x + ", round(coef(model_ww)[1], 1),
+                    "  R² = ", round(summary(model_ww)$r.squared, 2))  # Extract regression line equation
+  }
+  if (nrow(data_ws) > 1) {
+    model_ws <- lm(as.formula(paste0("YPP ~ `", trait, "`")), data = data_ws)
+    eq_ws <- paste0("WS: y = ", round(coef(model_ws)[2], 2), "x + ", round(coef(model_ws)[1], 1),
+                    "  R² = ", round(summary(model_ws)$r.squared, 2))
+  }
+  # Regression equations help show how strongly each trait correlates with yield under stress and normal conditions
+  
+  # Define axis limits to position text labels dynamically
+  x_min <- min(data[[trait]], na.rm = TRUE)
+  x_max <- max(data[[trait]], na.rm = TRUE)
+  y_min <- min(data$YPP, na.rm = TRUE)
+  y_max <- max(data$YPP, na.rm = TRUE)
+  
+  # Create regression scatter plot with fitted lines
+  ggplot(data, aes_string(x = paste0("`", trait, "`"), y = "YPP", color = "Condition", shape = "Condition")) +
+    geom_point(size = 3.5) +                                  # Plot actual data points
+    geom_smooth(method = "lm", se = FALSE, size = 0.8) +       # Add linear regression line
+    scale_y_continuous(expand = expansion(mult = c(0, 0.1))) + # Keep y-axis tight to data range
+    
+    # Add regression equations as text annotations on the graph
+    annotate("text",
+             x = x_min + 0.02 * (x_max - x_min),
+             y = y_max - 0.05 * (y_max - y_min),
+             label = eq_ww, size = 25, family = "Times New Roman", color = "#377EB8", hjust = 0) +
+    annotate("text",
+             x = x_min + 0.02 * (x_max - x_min),
+             y = y_max - 0.12 * (y_max - y_min),
+             label = eq_ws, size = 25, family = "Times New Roman", color = "#E41A1C", hjust = 0) +
+    
+    labs(
+      x = trait,                 # Trait on x-axis
+      y = "GY (g)",              # Grain yield on y-axis
+      color = "Condition",       # Legend title
+      shape = "Condition"
+    ) +
+    theme_minimal(base_family = "Times New Roman") +  # Clean and consistent font theme
+    theme(
+      axis.text = element_text(size = 65, color = "black", face = "bold"),  # Readable text
+      axis.title = element_text(size = 68, color = "black", face = "bold"),
+      legend.position = "bottom",             # Move legend below plots for compact layout
+      legend.title = element_blank(),
+      legend.text = element_text(size = 85),
+      panel.border = element_rect(color = "black", fill = NA, linewidth = 0.7),  # Frame border for clarity
+      plot.margin = margin(10, 10, 10, 10),
+      plot.title = element_text(size = 70, face = "bold", hjust = 0)
+    ) +
+    ggtitle(label_letter) +  # Add subplot label (A, B, C, …)
+    scale_color_manual(values = c("WS" = "#E41A1C", "WW" = "#377EB8")) +  # Red for WS, blue for WW
+    scale_shape_manual(values = c("WS" = 17, "WW" = 19))  # Different shapes for clarity
+}
+
+# ── Generate All Plots ───────────────────────────────────
+plots <- list()      # Store plots here
+labels <- LETTERS[1:12]  # Label subplots A–L
+i <- 1
+
+for (trait_name in names(trait_groups)) {          # Loop through each trait group
+  for (j in 1:2) {                                # For both vegetative and reproductive stage
+    trait_short <- trait_groups[[trait_name]][j]
+    p <- plot_regression(trait_short, trait_name, labels[i])  # Call regression plot function
+    plots[[i]] <- p
+    i <- i + 1
+  }
+}
+# Doing this ensures we compare yield response to each trait at both stages under both water conditions
+
+# ── Combine Plots ────────────────────────────────────────
+combined_plot <- wrap_plots(plots, ncol = 3, guides = "collect") &  # Arrange 12 plots in 3 columns
+  theme(legend.position = "bottom")  # Collect legends at bottom for uniformity
+
+# ── Save Output ──────────────────────────────────────────
+ggsave(
+  "Trait_vs_YPP_EqBoxed_WWtop_WSbelow.tiff",   # Save as high-resolution TIFF
+  combined_plot,
+  width = 25, height = 20, dpi = 300, units = "in", device = "tiff", bg = "white"
+)
+# Exporting as TIFF ensures journal-quality image suitable for publication
+# Width and height ensure readability when printed; white background avoids transparency issues
