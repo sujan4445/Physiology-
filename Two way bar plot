@@ -1,0 +1,80 @@
+# ── 1. Load Libraries ─────────────────────────────────────
+library(tidyverse)  # For data manipulation and ggplot2 plotting
+library(showtext)   # To use custom fonts in ggplot
+library(patchwork)  # To arrange multiple ggplots together
+
+# ── 2. Set Font ───────────────────────────────────────────
+font_add("Times New Roman", regular = "C:/Windows/Fonts/times.ttf")  # Add desired publication-style font
+showtext_auto()  # Automatically render text with custom font
+
+# ── 3. Read Data ──────────────────────────────────────────
+physio <- Physio  # Use dataset already loaded as 'Physio'
+
+# ── 4. Define Trait Pairs and Full Names ─────────────────
+trait_pairs <- list(
+  "Normalized Difference Vegetation Index (NDVI)"     = c("NDVI1", "NDVI2"),   # NDVI at vegetative/reproductive stage
+  "Canopy Temperature °C (CT)"                        = c("CT1", "CT2"),       # Temperature difference between stages
+  "Chlorophyll Content (CC)"                          = c("CC1", "CC2"),
+  "SPAD Chlorophyll Content (SPAD)"                   = c("SPAD1", "SPAD2"),
+  "Maximum Quantum Efficiency (Fv/Fm)"                = c("Fv/m1", "Fv/m2"),
+  "Performance Index (Fv/Fo)"                         = c("Fv/o1", "Fv/o2")
+)
+
+labels <- LETTERS[1:6]  # For tagging subplots A–F
+plot_list <- list()     # Empty list to store each plot
+
+# ── 5. Generate Plots ─────────────────────────────────────
+for (i in seq_along(trait_pairs)) {                   # Loop through each trait
+  trait_label <- names(trait_pairs)[i]
+  v_trait <- trait_pairs[[i]][1]                     # Vegetative stage variable
+  r_trait <- trait_pairs[[i]][2]                     # Reproductive stage variable
+  
+  sub <- physio %>%
+    select(GEN, TRT, REP, !!sym(v_trait), !!sym(r_trait)) %>%  # Select key columns
+    pivot_longer(cols = c(!!sym(v_trait), !!sym(r_trait)),
+                 names_to = "Stage", values_to = "Value") %>%  # Reshape to long format
+    mutate(Stage = factor(ifelse(Stage == v_trait, "Vegetative", "Reproductive"),
+                          levels = c("Vegetative", "Reproductive")))  # Label stages properly
+  
+  summary_dat <- sub %>%
+    group_by(TRT, Stage) %>%
+    summarise(mean = mean(Value, na.rm = TRUE),                   # Compute mean
+              se = sd(Value, na.rm = TRUE)/sqrt(n()), .groups = "drop")  # Compute standard error
+  
+  # Create bar plot comparing means between stages and treatments
+  p <- ggplot(summary_dat, aes(x = Stage, y = mean, fill = TRT)) +
+    geom_bar(stat = "identity", position = position_dodge(0.8), width = 0.7) +
+    geom_errorbar(aes(ymin = mean - se, ymax = mean + se),
+                  position = position_dodge(0.8), width = 0.2) +
+    labs(y = trait_label, x = NULL, tag = paste0(labels[i], ".")) + # Label y-axis and subplot
+    scale_y_continuous(expand = expansion(mult = c(0, 0.05))) +     # Start y-axis at 0
+    scale_fill_brewer(palette = "Set1") +                           # Distinct colors for treatments
+    theme_minimal(base_family = "Times New Roman") +
+    theme(
+      axis.text.x = element_text(size = 40, color = "black"),
+      axis.text.y = element_text(size = 40, color = "black"),
+      axis.title.y = element_text(size = 36, face = "bold"),
+      legend.title = element_blank(),
+      legend.text = element_text(size = 32),
+      plot.tag = element_text(face = "bold", size = 48),            # Tag (A–F)
+      panel.border = element_rect(color = "black", fill = NA),
+      panel.grid = element_blank(),                                 # Clean figure style
+      axis.ticks.y = element_line(color = "black"),
+      axis.ticks.length.y = unit(0.15, "cm"),
+      axis.ticks.length.x = unit(0.15, "cm")
+    )
+  
+  plot_list[[i]] <- p  # Store each plot in list
+}
+
+# ── 6. Arrange with Gap Between Rows ──────────────────────
+# Combine six trait plots into two rows with space between them
+top_row <- plot_list[[1]] | plot_list[[2]] | plot_list[[3]]
+bottom_row <- plot_list[[4]] | plot_list[[5]] | plot_list[[6]]
+
+final_plot <- (top_row / plot_spacer() / bottom_row) +
+  plot_layout(heights = c(1, 0.1, 1), guides = "collect")  # Collect legends and balance layout
+
+# ── 7. Export Plot ────────────────────────────────────────
+ggsave("physio_trait111s_plot.tiff", final_plot,
+       width = 14, height = 8, dpi = 300, device = "tiff")  # Export high-quality TIFF for publication
