@@ -1,0 +1,125 @@
+
+
+library(tidyverse)
+library(pheatmap)
+library(Hmisc)
+
+# ================================
+# 2. Load Your Data
+# ================================
+data <- FINAL
+
+# Clean column names
+colnames(data) <- make.names(colnames(data), unique = TRUE)
+
+# ================================
+# 3. Extract Traits (from 4th column)
+# ================================
+traits <- data[, 4:ncol(data)]
+
+# ================================
+# 4. DEFINE YOUR TRAIT NAMES
+# ================================
+original_names <- c("PH","SL","NS","ST","HSW","YPP","CC","SPAD",
+                    "NDVI","CT","Fv/m","Fv/o","FLA","RWC")
+
+if(ncol(traits) != length(original_names)){
+  stop("Mismatch: number of columns does not match your trait list!")
+}
+
+safe_names <- make.names(original_names)
+colnames(traits) <- safe_names
+
+# ================================
+# 5. Convert + Clean Data
+# ================================
+traits <- traits %>% mutate(across(everything(), as.numeric))
+
+traits[!is.finite(as.matrix(traits))] <- NA
+traits <- na.omit(traits)
+
+# ================================
+# 6. Correlation
+# ================================
+cor_res <- rcorr(as.matrix(traits), type = "pearson")
+
+cor_matrix <- cor_res$r
+p_matrix <- cor_res$P
+
+# ================================
+# 7. Significance Labels
+# ================================
+sig_levels <- matrix("", nrow = nrow(p_matrix), ncol = ncol(p_matrix))
+
+sig_levels[p_matrix < 0.05] <- "*"
+sig_levels[p_matrix < 0.01] <- "**"
+sig_levels[p_matrix < 0.001] <- "***"
+
+cor_labels <- matrix(paste0(round(cor_matrix, 2), sig_levels),
+                     nrow = nrow(cor_matrix))
+
+# ================================
+# 8. Restore Original Names
+# ================================
+rownames(cor_matrix) <- original_names
+colnames(cor_matrix) <- original_names
+
+rownames(cor_labels) <- original_names
+colnames(cor_labels) <- original_names
+
+# ================================
+# 9. Color Palette (Exact)
+# ================================
+col_palette <- colorRampPalette(c(
+  "#081D58",
+  "#225EA8",
+  "#41B6C4",
+  "#FFFFFF",
+  "#FC9272",
+  "#DE2D26",
+  "#67000D"
+))(100)
+
+breaks <- seq(-1, 1, length.out = 101)
+
+# ================================
+# 10. Plot (RECTANGULAR + BLACK TEXT)
+# ================================
+pheatmap(cor_matrix,
+         color = col_palette,
+         breaks = breaks,
+         cluster_rows = TRUE,
+         cluster_cols = TRUE,
+         display_numbers = cor_labels,
+         number_color = "black",   # 🔥 FORCE BLACK TEXT
+         fontsize_number = 10,     # 🔥 Bigger numbers
+         fontsize_row = 11,
+         fontsize_col = 11,
+         border_color = "grey70",
+         cellwidth = 45,           # 🔥 RECTANGLE WIDTH
+         cellheight = 25,          # 🔥 RECTANGLE HEIGHT
+         main = "Correlation Heatmap",
+         angle_col = 45)
+
+# ================================
+# 11. Save High-Quality Image
+# ================================
+png("Correlationdrought_heatmap.tiff", width = 3500, height = 2500, res = 320)
+
+pheatmap(cor_matrix,
+         color = col_palette,
+         breaks = breaks,
+         cluster_rows = TRUE,
+         cluster_cols = TRUE,
+         display_numbers = cor_labels,
+         number_color = "black",
+         fontsize_number = 10,
+         fontsize_row = 11,
+         fontsize_col = 11,
+         border_color = "grey70",
+         cellwidth = 45,
+         cellheight = 25,
+         main = "",
+         angle_col = 90)
+
+dev.off()
